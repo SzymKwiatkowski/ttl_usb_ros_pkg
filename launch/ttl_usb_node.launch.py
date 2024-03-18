@@ -16,9 +16,7 @@ from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument
 from launch.actions import OpaqueFunction
 from launch.substitutions import LaunchConfiguration
-from launch.substitutions import PathJoinSubstitution
 from launch_ros.actions import Node
-from launch_ros.substitutions import FindPackageShare
 
 
 def launch_setup(context, *args, **kwargs):
@@ -55,7 +53,8 @@ def generate_launch_description():
     
     add_launch_arg('gps_topic', '~/gps/navsat')
     add_launch_arg('usb_port', '/dev/ttyUSB0')
-
+    add_launch_arg('gps_id', 'GGA')
+    
     return LaunchDescription([
         *declared_arguments,
         OpaqueFunction(function=launch_setup)
