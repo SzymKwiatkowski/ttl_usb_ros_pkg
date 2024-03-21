@@ -1,11 +1,12 @@
 import serial
 import serial.tools.list_ports
-import serial
 import time
 import struct
 
 import rclpy
 from rclpy.node import Node
+
+import gps
 
 from sensor_msgs.msg import NavSatFix, NavSatStatus
 
@@ -17,17 +18,22 @@ class TTLUsbNode(Node):
         self.declare_parameter('gps_id', 'GGA')
         
         topic = self.get_parameter('gps_topic').get_parameter_value().string_value
-        port = self.get_parameter('usb_port').get_parameter_value().string_value
+        usb_port = self.get_parameter('usb_port').get_parameter_value().string_value
         self.gps_id = self.get_parameter('gps_id').get_parameter_value().string_value
         
         self.get_logger().info('Topic name: "%s"' % topic)
-        self.get_logger().info('Selected port: "%s"' % port)
+        self.get_logger().info('Selected port: "%s"' % usb_port)
         self.get_logger().info('Selected GPS message: "%s"' % self.gps_id)
+        
+        self.session = gps.gps(mode=gps.WATCH_ENABLE)
+        self.fix_dict = {
+            "Invalid": 0, "NO_FIX": 0, "2D": 0, "3D": 1
+        }
         
         self.UTCoffset=int(-time.timezone/3600) # calculate UTC offset
         self.port = None
         try:
-            self.port = serial.Serial(port)
+            self.port = serial.Serial(usb_port)
             self.port.close()
             print(self.port)
         except (OSError, serial.SerialException):
@@ -40,9 +46,11 @@ class TTLUsbNode(Node):
         self.i = 0
     
     def timer_callback(self):
-        data_bare = self.port.readline()
-        data = data_bare.decode('utf-8').rstrip()
-        msg = self.parseData(data, data_bare)
+        msg = self.process()
+
+        # data_bare = self.port.readline()
+        # data = data_bare.decode('utf-8').rstrip()
+        # msg = self.parseData(data, data_bare)
         if msg is None:
             return
         msg.header.stamp = self.get_clock().now().to_msg()
@@ -203,6 +211,32 @@ class TTLUsbNode(Node):
             return True
         else:
             return False
+    
+    def process(self) -> NavSatFix:
+        while 0 == self.session.read():
+            if not (gps.MODE_SET & self.session.valid):
+                # not useful, probably not a TPV message
+                continue
+
+            print('Mode: %s(%d) Time: ' %
+                (("Invalid", "NO_FIX", "2D", "3D")[self.session.fix.mode],
+                self.session.fix.mode), end="")
+            # print time, if we have it
+            if gps.TIME_SET & self.session.valid:
+                print(self.session.fix.time, end="")
+            else:
+                print('n/a', end="")
+
+            if ((gps.isfinite(self.session.fix.latitude) and
+                gps.isfinite(self.session.fix.longitude))):
+                navsatfix = NavSatFix()
+                navsatfix.latitude = self.session.fix.latitude
+                navsatfix.longitude = self.session.fix.longitude
+                # navsatfix.status = self.fix_dict[self.session.fix.mode]
+                
+                return navsatfix
+            else:
+                print(" Lat n/a Lon n/a")
         
 def main(args=None):
     rclpy.init(args=args)
